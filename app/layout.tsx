@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.SITE_URL ?? 'http://localhost:3000'),
+  metadataBase: new URL('https://zhaogujing-relic-oracle.y2993999494.chatgpt.site'),
   title: '照骨镜：汴京失物案 | 国风互动推理',
   description: '用光检、听音和拓印调查一面宋风铜镜，在三名认领者中找出它真正记得的人。',
   openGraph: {
