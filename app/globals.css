@@ -33,3 +33,24 @@ body{font-family:"Songti SC","STSong","Noto Serif CJK SC",serif}button,input{fon
 @keyframes cluePop{0%{transform:scale(.3);opacity:0}70%{transform:scale(1.2)}100%{transform:scale(1)}}
 @media(max-width:800px){.game-topbar{grid-template-columns:1fr auto}.case-progress{display:none}.header-actions{gap:8px}.source-link{display:block}.case-stamp{display:none}.case-object{height:270px}.brief-rules{grid-template-columns:1fr}.brief-rules div{min-height:0}.suspect-grid{grid-template-columns:1fr}.suspect-grid>button{min-height:220px}.ending-actions{flex-direction:column;align-items:center}.ending-actions .primary,.ending-actions .ghost{width:min(100%,340px)}}
 @media(max-width:520px){.brand small{display:none}.evidence-button{padding:7px 8px}.case-cover{padding-top:30px}.case-cover h1{font-size:41px}.case-cover .intro br{display:none}.case-object{height:255px}.evidence-tags span:nth-child(1){left:6%}.evidence-tags span:nth-child(2){right:5%}.evidence-tags span:nth-child(3){right:14%;top:17%}.briefing{padding:22px 14px}.brief-card{padding:30px 24px}.quest{padding-top:27px}.memory-card{padding:22px 12px}.memory-tones{gap:6px}.grid-rubbing-card{padding:22px 12px}.rubbing-sheet{width:100%}.deduction{padding:30px 16px 60px}.reason-panel{padding:14px}.ending{padding-top:28px}.ending-card{padding:35px 20px}.ending-actions{flex-direction:column}.evidence-drawer{padding-left:18px;padding-right:18px}}
+
+/* ===== 趣味增强 polish ===== */
+.hint-button{border:1px solid #574b36;padding:8px 10px;color:#c8ad6b;background:#1c1810;cursor:pointer;font-size:10px;letter-spacing:.14em;transition:.2s}
+.hint-button:hover{border-color:#a98c52;color:#e6c98b}
+.toast{position:fixed;left:50%;bottom:calc(28px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(10px);z-index:80;max-width:min(88vw,420px);padding:12px 18px;border:1px solid #a08a55;border-radius:2px;background:rgba(20,18,12,.95);color:#e8d9b5;font-size:12px;letter-spacing:.06em;line-height:1.6;text-align:center;box-shadow:0 16px 50px rgba(0,0,0,.5);backdrop-filter:blur(6px);animation:toastIn .22s ease forwards}
+.toast b{color:#f0d9a0;font-weight:600}
+@keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(14px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-7px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(3px)}}
+.play-card.shake{animation:shake .42s ease}
+.investigation-mirror .clue-point.revealed::after{content:"";position:absolute;inset:-8px;border:1px solid #d5b66b;border-radius:50%;animation:burst .8s ease-out}
+@keyframes burst{0%{opacity:.9;transform:scale(.5)}100%{opacity:0;transform:scale(1.9)}}
+.primary:active:not(:disabled){transform:scale(.985)}
+.tone-grid button:active:not(:disabled){transform:scale(.96)}
+.suspect-grid>button:active{transform:scale(.985)}
+.mirror.static-mirror{animation:mirrorFloat 5s ease-in-out infinite}
+@keyframes mirrorFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+.badge-list{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-top:16px}
+.badge{display:flex;flex-direction:column;gap:2px;padding:7px 12px;border:1px solid #6a5a37;background:rgba(198,168,100,.08)}
+.badge b{color:#d8bb74;font-weight:400;font-size:12px;letter-spacing:.14em}
+.badge small{color:#8b7f68;font-size:8px;letter-spacing:.08em}
+@media(prefers-reduced-motion:reduce){.mirror.static-mirror{animation:none}.play-card.shake{animation:none}.toast{animation:none}}

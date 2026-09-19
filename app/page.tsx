@@ -41,7 +41,12 @@ export default function Home() {
   const [rubbing, setRubbing] = useState(false);
   const [suspect, setSuspect] = useState<Suspect | null>(null);
   const [reason, setReason] = useState('');
+  const [toast, setToast] = useState<{ text: string; bold?: string } | null>(null);
+  const [eggTaps, setEggTaps] = useState(0);
+  const [shaking, setShaking] = useState(false);
   const stageRef = useRef<HTMLDivElement>(null);
+  const toastTimer = useRef<number | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
   const targetSequence: Tone[] = ['jade', 'wood', 'bronze', 'jade'];
 
   const evidence = useMemo(() => {
@@ -58,16 +63,72 @@ export default function Home() {
       ? { title: '铭文的误导', rank: '作坊追迹者', text: '你找对了镜子的出生地，却把制造者当成了使用者。镜子会经过商贩、赠送和转卖，铭文不等于物权证明。' }
       : { title: '旅痕与主人', rank: '行迹采集者', text: '你捕捉到镜子的流转痕迹，但货匣只证明它被运送过。真正的长期使用痕迹，藏在人手总会碰到的羽纹上。' };
 
+  const ensureAudio = () => {
+    const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtx) return null;
+    if (!audioCtxRef.current) audioCtxRef.current = new AudioCtx();
+    if (audioCtxRef.current.state === 'suspended') audioCtxRef.current.resume();
+    return audioCtxRef.current;
+  };
+
   const playNote = (tone: Tone, when = 0) => {
     window.setTimeout(() => {
-      const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      if (!AudioCtx) return;
-      const ctx = new AudioCtx(); const oscillator = ctx.createOscillator(); const gain = ctx.createGain();
+      const ctx = ensureAudio();
+      if (!ctx) return;
+      const oscillator = ctx.createOscillator(); const gain = ctx.createGain();
       oscillator.frequency.value = { jade: 784, wood: 392, bronze: 196 }[tone]; oscillator.type = tone === 'bronze' ? 'sine' : 'triangle';
       gain.gain.setValueAtTime(.0001, ctx.currentTime); gain.gain.exponentialRampToValueAtTime(.2, ctx.currentTime + .02); gain.gain.exponentialRampToValueAtTime(.0001, ctx.currentTime + .55);
       oscillator.connect(gain).connect(ctx.destination); oscillator.start(); oscillator.stop(ctx.currentTime + .58);
       setActiveTone(tone); window.setTimeout(() => setActiveTone(null), 420);
     }, when);
+  };
+
+  const playSfx = (kind: 'found' | 'chime' | 'wrong' | 'stamp') => {
+    const ctx = ensureAudio(); if (!ctx) return;
+    const t = ctx.currentTime;
+    const note = (freq: number, start: number, dur: number, type: OscillatorType = 'sine', peak = 0.18) => {
+      const oscillator = ctx.createOscillator(); const gain = ctx.createGain();
+      oscillator.frequency.value = freq; oscillator.type = type;
+      gain.gain.setValueAtTime(.0001, start); gain.gain.exponentialRampToValueAtTime(peak, start + .015); gain.gain.exponentialRampToValueAtTime(.0001, start + dur);
+      oscillator.connect(gain).connect(ctx.destination); oscillator.start(start); oscillator.stop(start + dur + .05);
+    };
+    if (kind === 'found') { note(1318.5, t, .3, 'sine', .13); note(1760, t + .06, .38, 'sine', .1); }
+    else if (kind === 'chime') [523.25, 587.33, 659.25, 783.99, 880].forEach((f, i) => note(f, t + i * .09, .5, 'triangle', .16));
+    else if (kind === 'wrong') { note(150, t, .38, 'sawtooth', .15); note(142, t + .02, .38, 'sawtooth', .13); }
+    else { note(120, t, .3, 'square', .2); note(92, t + .05, .28, 'sine', .17); }
+  };
+
+  const buzz = (pattern: number | number[]) => { try { navigator.vibrate?.(pattern); } catch { /* 不支持震动则忽略 */ } };
+
+  const showToast = (text: string, bold?: string) => {
+    setToast({ text, bold });
+    if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(null), 2100);
+  };
+
+  const hintText = (): string => {
+    if (scene === 'light') {
+      if (found.length === 0) return '从镜面缓缓扫过：右上方与镜缘各有一处反光异常。';
+      if (found.length < 3) return '还有痕迹藏在镜缘附近，把灯贴近边缘慢慢移动。';
+      return '三处痕迹已齐，点击下方「转入听音台」。';
+    }
+    if (scene === 'sound') return soundAttempts >= 1 ? '正确顺序：玉磬 → 木鼓 → 铜钲 → 玉磬（清·暖·沉·清）。' : '第一声与最后一声相同；先记住音高，再按顺序复现。';
+    if (scene === 'rubbing') return rubbed.length < 9 ? '按住拓纸横扫空白区域即可，不必逐格点击。' : '铭文已可读，可继续拓满全部 12 区以获成就。';
+    if (scene === 'deduction') return '作坊铭只证明产地；看谁的职业会让手常年触碰镜背。';
+    return '跟着顶部步骤提示走，卡住随时点「提示」。';
+  };
+
+  const earnedBadges = useMemo(() => {
+    const list: { t: string; d: string }[] = [];
+    if (soundState === 'solved' && soundAttempts === 1) list.push({ t: '过耳不忘', d: '听音一次即复现' });
+    if (rubbed.length >= 12) list.push({ t: '纤毫毕现', d: '拓满全部十二区' });
+    return list;
+  }, [soundState, soundAttempts, rubbed]);
+
+  const handleEgg = () => {
+    const n = eggTaps + 1;
+    if (n === 3) { setEggTaps(0); playSfx('chime'); buzz(30); showToast('镜中浮现小字：', '羽落暖沉，唯有七娘。'); }
+    else setEggTaps(n);
   };
 
   const playSequence = () => {
@@ -83,8 +144,15 @@ export default function Home() {
     if (next.length === targetSequence.length) {
       setSoundAttempts(a => a + 1);
       const correct = next.every((t, i) => t === targetSequence[i]);
-      if (correct) setSoundState('solved');
-      else { setSoundState('wrong'); window.setTimeout(() => { setToneInput([]); setSoundState('idle'); }, 900); }
+      if (correct) {
+        setSoundState('solved');
+        playSfx('chime'); buzz([30, 40, 30]);
+        showToast('♪ 新证物：四声曲牌暗号');
+      } else {
+        setSoundState('wrong');
+        playSfx('wrong'); buzz(120); setShaking(true);
+        window.setTimeout(() => { setToneInput([]); setSoundState('idle'); setShaking(false); }, 900);
+      }
     }
   };
 
@@ -92,18 +160,30 @@ export default function Home() {
     const rect = stageRef.current?.getBoundingClientRect(); if (!rect) return;
     const x = Math.max(4, Math.min(96, ((clientX - rect.left) / rect.width) * 100));
     const y = Math.max(4, Math.min(94, ((clientY - rect.top) / rect.height) * 100)); setLight({ x, y });
-    targets.forEach(t => { if (Math.hypot(x - t.x, y - t.y) < 10) setFound(old => old.includes(t.id) ? old : [...old, t.id]); });
+    const newIds: string[] = [];
+    targets.forEach(t => { if (Math.hypot(x - t.x, y - t.y) < 10 && !found.includes(t.id)) { newIds.push(t.id); setFound(old => old.includes(t.id) ? old : [...old, t.id]); } });
+    if (newIds.length) {
+      playSfx('found'); buzz(30);
+      showToast('新证物入袋 · ', clueData[newIds[0] as keyof typeof clueData].title);
+      if (found.length + newIds.length >= 3) { playSfx('chime'); buzz([30, 40, 30]); }
+    }
   };
 
-  const revealTile = (index: number) => { if (rubbing) setRubbed(old => old.includes(index) ? old : [...old, index]); };
-  const restart = () => { setScene('cover'); setFound([]); setToneInput([]); setSoundState('idle'); setSoundAttempts(0); setRubbed([]); setSuspect(null); setReason(''); };
+  const revealTile = (index: number) => {
+    if (rubbed.includes(index)) return;
+    const next = [...rubbed, index];
+    setRubbed(next);
+    if (next.length === 9) { playSfx('chime'); showToast('铭文可读：', '湖州石家青铜照子'); }
+    else if (next.length === 12) { playSfx('found'); buzz(30); showToast('成就解锁：', '纤毫毕现 · 拓满十二区'); }
+  };
+  const restart = () => { setScene('cover'); setFound([]); setToneInput([]); setSoundState('idle'); setSoundAttempts(0); setRubbed([]); setSuspect(null); setReason(''); setToast(null); setEggTaps(0); setShaking(false); if (toastTimer.current) window.clearTimeout(toastTimer.current); };
 
   return <main className={`shell game-shell scene-${scene}`}>
     <div className="grain" aria-hidden="true" />
     <header className="topbar game-topbar">
       <button className="brand" onClick={restart}><span className="seal">鉴</span><span>照骨镜<small>汴京失物案</small></span></button>
       <div className="case-progress"><span className={scene !== 'cover' ? 'active':''}>入档</span><i/><span className={['light','sound','rubbing','deduction','ending'].includes(scene) ? 'active':''}>验物</span><i/><span className={['deduction','ending'].includes(scene) ? 'active':''}>结案</span></div>
-      <div className="header-actions"><button onClick={() => setBagOpen(true)} className="evidence-button">证物袋 <b>{evidence.length}</b></button><button className="source-link" onClick={() => setSourcesOpen(true)}>史实与出处</button></div>
+      <div className="header-actions"><button className="hint-button" onClick={() => showToast(hintText())}>提示</button><button onClick={() => setBagOpen(true)} className="evidence-button">证物袋 <b>{evidence.length}</b></button><button className="source-link" onClick={() => setSourcesOpen(true)}>史实与出处</button></div>
     </header>
 
     {scene === 'cover' && <section className="hero case-cover scene-panel">
@@ -111,7 +191,7 @@ export default function Home() {
       <p className="eyebrow">开封府失物档 · 第 007 号</p>
       <h1>一面镜子<br/><em>三个都说是它的人</em></h1>
       <p className="intro">汴京州桥下捡到一面破镜。镜匠、行商与瓦舍乐工同时前来认领。<br/>你只有一盏灯的时间，找出它真正记得的人。</p>
-      <div className="case-object"><div className="halo"/><div className="mirror static-mirror"><span className="mirror-ring ring-one"/><span className="mirror-ring ring-two"/><span className="mirror-heart">玄</span><span className="hidden-mark">羽</span></div><div className="evidence-tags"><span>裂口</span><span>朱漆</span><span>暗纹</span></div></div>
+      <div className="case-object"><div className="halo"/><div className="mirror static-mirror"><span className="mirror-ring ring-one"/><span className="mirror-ring ring-two"/><span className="mirror-heart" onClick={handleEgg}>玄</span><span className="hidden-mark">羽</span></div><div className="evidence-tags"><span>裂口</span><span>朱漆</span><span>暗纹</span></div></div>
       <button className="primary" onClick={() => setScene('briefing')}><span>接下这宗奇案</span><b>→</b></button>
       <div className="game-stats"><span>约 3 分钟</span><span>3 种操作</span><span>多结局</span><span>可重玩</span></div>
     </section>}
@@ -130,22 +210,23 @@ export default function Home() {
 
     {scene === 'sound' && <section className="quest scene-panel">
       <div className="quest-copy"><p className="eyebrow">02 · 听证</p><h2>镜子被敲了<br/>四下</h2><p>先点击“听回响”，再用三种器物复现顺序。戴上耳机会更容易分辨高低。</p><div className="mini-goal"><b>侦听记录</b><span>尝试 {soundAttempts} 次</span></div><div className="sound-slots">{targetSequence.map((_,i)=><span key={i} className={toneInput[i] ? toneInput[i] : ''}>{toneInput[i] ? toneNames[toneInput[i]] : i+1}</span>)}</div></div>
-      <div className={`play-card memory-card ${soundState}`}><div className="echo-core"><i className={activeTone ?? ''}/><span>{soundState==='playing'?'正在回放…':soundState==='wrong'?'顺序不对':soundState==='solved'?'四声重合':'等待听音'}</span></div><button className="listen-button" onClick={playSequence} disabled={soundState==='playing'||soundState==='solved'}>◎ {soundAttempts ? '再听一次' : '听回响'}</button><div className="tone-grid memory-tones">{(['jade','wood','bronze'] as Tone[]).map(t=><button key={t} onClick={()=>tapTone(t)} disabled={soundState==='playing'||soundState==='solved'}><span className={`tone-object ${t}`}>{t==='jade'?'◇':t==='wood'?'丶':'●'}</span><b>{{jade:'玉磬',wood:'木鼓',bronze:'铜钲'}[t]}</b><small>{toneNames[t]}</small></button>)}</div><p className="memory-hint">{soundState==='wrong'?'线索断了，再听一次':soundState==='solved'?'新证物：四声曲牌暗号':'注意第一声与最后一声'}</p></div>
+      <div className={`play-card memory-card ${soundState} ${shaking ? 'shake' : ''}`}><div className="echo-core"><i className={activeTone ?? ''}/><span>{soundState==='playing'?'正在回放…':soundState==='wrong'?'顺序不对':soundState==='solved'?'四声重合':'等待听音'}</span></div><button className="listen-button" onClick={playSequence} disabled={soundState==='playing'||soundState==='solved'}>◎ {soundAttempts ? '再听一次' : '听回响'}</button><div className="tone-grid memory-tones">{(['jade','wood','bronze'] as Tone[]).map(t=><button key={t} onClick={()=>tapTone(t)} disabled={soundState==='playing'||soundState==='solved'}><span className={`tone-object ${t}`}>{t==='jade'?'◇':t==='wood'?'丶':'●'}</span><b>{{jade:'玉磬',wood:'木鼓',bronze:'铜钲'}[t]}</b><small>{toneNames[t]}</small></button>)}</div><p className="memory-hint">{soundState==='wrong'?'线索断了，再听一次':soundState==='solved'?'新证物：四声曲牌暗号':'注意第一声与最后一声'}</p></div>
       <button className="primary next" disabled={soundState!=='solved'} onClick={()=>setScene('rubbing')}><span>{soundState==='solved'?'带着节奏去拓印':'复现正确顺序'}</span><b>→</b></button>
     </section>}
 
     {scene === 'rubbing' && <section className="quest scene-panel">
       <div className="quest-copy"><p className="eyebrow">03 · 拓铭</p><h2>一个字号<br/>不等于一个主人</h2><p>按住纸面并来回擦拭，至少拓出 9 块才能读完铭文。漏掉的地方可能正是关键。</p><div className="mini-goal"><b>拓印完成度</b><span>{rubbed.length}/12 区</span></div><div className="rub-legend"><span>作坊？</span><span>时间？</span><span>主人？</span></div></div>
-      <div className="play-card grid-rubbing-card"><div className="rubbing-sheet" onPointerDown={()=>setRubbing(true)} onPointerUp={()=>setRubbing(false)} onPointerLeave={()=>setRubbing(false)}>{Array.from({length:12},(_,i)=><button aria-label={`拓印第 ${i+1} 区`} key={i} className={rubbed.includes(i)?'rubbed':''} onPointerDown={()=>{setRubbing(true);setRubbed(old=>old.includes(i)?old:[...old,i])}} onPointerEnter={()=>revealTile(i)}><span>{['湖','州','石','家','青','铜','照','子','客','来','如','意'][i]}</span></button>)}</div><div className="rub-progress"><i><b style={{width:`${rubbed.length/12*100}%`}}/></i><span>{rubbed.length>=9?'铭文可读：湖州石家青铜照子':'按住拓纸，划过空白区域'}</span></div></div>
+      <div className="play-card grid-rubbing-card"><div className="rubbing-sheet" onPointerDown={()=>setRubbing(true)} onPointerUp={()=>setRubbing(false)} onPointerLeave={()=>setRubbing(false)}>{Array.from({length:12},(_,i)=><button aria-label={`拓印第 ${i+1} 区`} key={i} className={rubbed.includes(i)?'rubbed':''} onPointerDown={()=>{setRubbing(true);revealTile(i)}} onPointerEnter={()=>{if(rubbing)revealTile(i)}}><span>{['湖','州','石','家','青','铜','照','子','客','来','如','意'][i]}</span></button>)}</div><div className="rub-progress"><i><b style={{width:`${rubbed.length/12*100}%`}}/></i><span>{rubbed.length>=9?'铭文可读：湖州石家青铜照子':'按住拓纸，划过空白区域'}</span></div></div>
       <button className="primary next" disabled={rubbed.length<9} onClick={()=>setScene('deduction')}><span>{rubbed.length<9?`还需拓出 ${9-rubbed.length} 区`:'召集三人对质'}</span><b>→</b></button>
     </section>}
 
-    {scene === 'deduction' && <section className="deduction scene-panel"><div className="deduction-head"><p className="eyebrow">最终推理</p><h2>作坊铭、运输痕和使用痕<br/><em>哪一种最能证明“属于”？</em></h2><p>选一位镜主人，再指出你最信任的证物。一旦落印，本案将记入你的鉴物档。</p></div><div className="suspect-grid">{suspects.map(s=><button key={s.id} className={suspect===s.id?'selected':''} onClick={()=>setSuspect(s.id)}><span className="suspect-mark">{s.mark}</span><small>{s.role}</small><h3>{s.name}</h3><blockquote>{s.claim}</blockquote><i>{suspect===s.id?'已锁定':'点击询问'}</i></button>)}</div><div className="reason-panel"><span>我最信任的证物</span><div>{evidence.map(e=><button key={e.title} className={reason===e.title?'selected':''} onClick={()=>setReason(e.title)}>{e.mark} · {e.title}</button>)}</div></div><button className="primary verdict" disabled={!suspect||!reason} onClick={()=>setScene('ending')}><span>落下结案印</span><b>鉴</b></button></section>}
+    {scene === 'deduction' && <section className="deduction scene-panel"><div className="deduction-head"><p className="eyebrow">最终推理</p><h2>作坊铭、运输痕和使用痕<br/><em>哪一种最能证明“属于”？</em></h2><p>选一位镜主人，再指出你最信任的证物。一旦落印，本案将记入你的鉴物档。</p></div><div className="suspect-grid">{suspects.map(s=><button key={s.id} className={suspect===s.id?'selected':''} onClick={()=>setSuspect(s.id)}><span className="suspect-mark">{s.mark}</span><small>{s.role}</small><h3>{s.name}</h3><blockquote>{s.claim}</blockquote><i>{suspect===s.id?'已锁定':'点击询问'}</i></button>)}</div><div className="reason-panel"><span>我最信任的证物</span><div>{evidence.map(e=><button key={e.title} className={reason===e.title?'selected':''} onClick={()=>setReason(e.title)}>{e.mark} · {e.title}</button>)}</div></div><button className="primary verdict" disabled={!suspect||!reason} onClick={()=>{playSfx('stamp');buzz(60);setScene('ending')}}><span>落下结案印</span><b>鉴</b></button></section>}
 
-    {scene === 'ending' && <section className={`ending scene-panel ${suspect==='musician'?'true-ending':''}`}><div className="ending-card"><div className="score-ring" style={{'--score':`${score*3.6}deg`} as React.CSSProperties}><span>{score}</span><small>鉴物分</small></div><p className="eyebrow">汴京失物案 · 已结</p><h2>{ending.title}</h2><div className="ending-seal">{suspect==='musician'?'归':suspect==='maker'?'误':'迹'}</div><p>{ending.text}</p><blockquote>你的鉴物称号：<b>{ending.rank}</b></blockquote><div className="ending-evidence"><span>你选择了 {suspects.find(s=>s.id===suspect)?.name}</span><span>关键证物：{reason}</span><span>听音尝试：{soundAttempts} 次</span></div></div><div className="ending-actions"><button className="primary" onClick={restart}><span>换一种推理重开</span><b>↻</b></button><button className="ghost" onClick={()=>setBagOpen(true)}>复盘全部证物</button></div><p className="disclaimer">“玄羽镜”、人物与失物案为虚构；铜镜作坊铭、纹饰与拓片知识参考博物馆公开资料。</p></section>}
+    {scene === 'ending' && <section className={`ending scene-panel ${suspect==='musician'?'true-ending':''}`}><div className="ending-card"><div className="score-ring" style={{'--score':`${score*3.6}deg`} as React.CSSProperties}><span>{score}</span><small>鉴物分</small></div><p className="eyebrow">汴京失物案 · 已结</p><h2>{ending.title}</h2><div className="ending-seal">{suspect==='musician'?'归':suspect==='maker'?'误':'迹'}</div><p>{ending.text}</p><blockquote>你的鉴物称号：<b>{ending.rank}</b></blockquote><div className="ending-evidence"><span>你选择了 {suspects.find(s=>s.id===suspect)?.name}</span><span>关键证物：{reason}</span><span>听音尝试：{soundAttempts} 次</span></div>{earnedBadges.length>0 && <div className="badge-list">{earnedBadges.map(b=><span className="badge" key={b.t}><b>{b.t}</b><small>{b.d}</small></span>)}</div>}</div><div className="ending-actions"><button className="primary" onClick={restart}><span>换一种推理重开</span><b>↻</b></button><button className="ghost" onClick={()=>setBagOpen(true)}>复盘全部证物</button></div><p className="disclaimer">“玄羽镜”、人物与失物案为虚构；铜镜作坊铭、纹饰与拓片知识参考博物馆公开资料。</p></section>}
 
     {bagOpen && <div className="modal-backdrop" onClick={()=>setBagOpen(false)}><aside className="sources evidence-drawer" role="dialog" aria-modal="true" aria-label="证物袋" onClick={e=>e.stopPropagation()}><button className="close" onClick={()=>setBagOpen(false)}>×</button><p className="eyebrow">开封府 · 第 007 号证物袋</p><h2>{evidence.length ? `已收集 ${evidence.length}/5` : '还没有证物'}</h2><div className="evidence-list">{evidence.map((e,i)=><article key={e.title}><span>{e.mark}</span><div><small>证物 0{i+1}</small><h3>{e.title}</h3><p>{e.note}</p></div></article>)}</div>{!evidence.length&&<p>提灯检查镜背后，线索会自动装入这里。</p>}</aside></div>}
 
     {sourcesOpen && <div className="modal-backdrop" onClick={()=>setSourcesOpen(false)}><aside className="sources" role="dialog" aria-modal="true" aria-label="史实与出处" onClick={e=>e.stopPropagation()}><button className="close" onClick={()=>setSourcesOpen(false)}>×</button><p className="eyebrow">史实边界</p><h2>这不是一面真实馆藏镜</h2><p>宋代铜镜的形制、镜钮、纹饰、作坊铭记以及拓片研究方法有公开馆藏资料可考。“玄羽镜”、沈七娘等人物、宣和四年失物案及所有对话均为虚构。</p><h3>核心参考</h3><ol><li><a href="https://www.shanghaimuseum.net/mu/frontend/pg/m/article/id/I00000752" target="_blank" rel="noreferrer">上海博物馆：馆藏铜镜展览资料</a></li><li><a href="https://www.dpm.org.cn/journal_detail/111271.html" target="_blank" rel="noreferrer">故宫博物院：《故宫藏镜》</a></li><li><a href="https://www.chnmuseum.cn/zp/zpml/csp/202203/t20220322_254454.shtml" target="_blank" rel="noreferrer">中国国家博物馆：双凤流云纹铜镜</a></li><li><a href="https://www.dpm.org.cn/show/226094.html" target="_blank" rel="noreferrer">故宫博物院：犀照群伦—故宫藏历代铜镜展</a></li></ol><p className="source-note">作品中“四声曲牌暗号”为游戏机制，不是历史考证结论。</p></aside></div>}
+    {toast && <div className="toast">{toast.text}{toast.bold && <b>{toast.bold}</b>}</div>}
   </main>;
 }
